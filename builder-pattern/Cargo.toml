@@ -1,5 +1,5 @@
 [package]
-name = "builder_pattern"
+name = "builder-pattern"
 version = "0.1.0"
 edition = "2024"
 

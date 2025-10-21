@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "builder_pattern"
+name = "builder-pattern"
 version = "0.1.0"
