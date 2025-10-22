@@ -1,58 +1,59 @@
+#[derive(Debug)]
 struct Server{
-    host:String,
+    host: String,
     port:u16,
-    ssl:bool
+    max_connections:usize,
+    timeout:u64
 }
 
 struct ServerBuilder{
-    host: Option<String>,
-    port: Option<u16>,
-    ssl: Option<bool>
+    host: String,
+    port:u16,
+    max_connections:usize,
+    timeout:u64
 }
 
 impl ServerBuilder{
-    fn new()->Self{
-        ServerBuilder{
-            host:None,
-            port:None,
-            ssl: None
-        }
-    }
-
-    fn host(mut self, host:&str)->Self{
-        self.host=Some(host.to_string());
+    fn host(mut self,host:&str)->Self{
+        self.host=host.to_string();
         self
     }
-
     fn port(mut self,port:u16)->Self{
-        self.port=Some(port);
+        self.port=port;
         self
     }
 
-    fn ssl(mut self,ssl:bool)->Self{
-        self.ssl=Some(ssl);
-        self
-    }
-
-    fn build(self)->Result<Server,&'static str>{
-        let host = self.host.ok_or("host is missing")?;
-        let port=self.port.ok_or("port is missing")?;
-        let ssl = self.ssl.unwrap_or(false);
-        Ok(Server{
-            host,
-            port,
-            ssl
-        })
+    fn build(self)->Server{
+        Server{
+            host: self.host,
+            port: self.port,
+            max_connections: self.max_connections,
+            timeout: self.timeout
+        }
     }
 }
 
+impl Default for ServerBuilder {
+    fn default()->Self{
+        ServerBuilder{
+            host: String::from("localhost"),
+            port: 8080,
+            max_connections: 100,
+            timeout: 10
+        }
+    }
+}
 
-fn main() {
-    let server = ServerBuilder::new()
-                .host("localhost")
-                .port(8080)
-                .ssl(true)
-                .build()
-                .expect("failed to build server");
-    println!("server running on {} port {} with ssl set to {}", server.host,server.port,server.ssl);
+impl Server{
+    fn builder()->ServerBuilder{
+        ServerBuilder::default()
+    }
+}
+
+fn main(){
+    let server = Server::builder()
+        .port(8080)
+        .host("localhost")
+        .build();
+    println!("{:?}",server);
 }
