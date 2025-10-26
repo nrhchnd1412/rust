@@ -58,7 +58,7 @@ impl Actor for CounterActor{
             }
             CounterMessage::Decrement {amount} => {
                 state.value -= amount;
-                state.total_operations -= 1;
+                state.total_operations += 1;
             }
             CounterMessage::GetValue(reply) => {
                 reply.send(state.value)?;
@@ -119,8 +119,9 @@ impl Actor for AggregatorActor{
 
     async fn handle(&self, myself: ActorRef<Self::Msg>, message: Self::Msg, state: &mut Self::State) -> Result<(), ActorProcessingErr> {
         match message {
-            AggregatorMessage::RegisterCounter(reply) => {
+            AggregatorMessage::RegisterCounter(counter_ref) => {
                 println!("[Aggregator] registering counter");
+                state.counters.push(counter_ref);
             }
             AggregatorMessage::CollectStats => {
                 let mut total_value=0i64;
@@ -158,15 +159,15 @@ impl Actor for AggregatorActor{
                         0.0
                     }
                 };
-                println!("[Aggregator] Toal value: {}, Total ops: {}, Abgops/sec: {:.2}",
+                println!("[Aggregator] Total value: {}, Total ops: {}, Avg ops/sec: {:.2}",
                          aggregated.total_value,aggregated.total_operations,aggregated.avg_ops_per_second);
                 state.last_stats=Some(aggregated);
 
                 //schedule next collection
                 tokio::spawn(async move{
-                    tokio::time::sleep(Duration.from_secs(2)).await;
+                    tokio::time::sleep(Duration::from_secs(2)).await;
                     let _=myself.cast(AggregatorMessage::CollectStats);
-                })
+                });
             }
             AggregatorMessage::GetTotalStats(reply) => {
                 if let Some(stats)=&state.last_stats {
@@ -186,6 +187,82 @@ impl Actor for AggregatorActor{
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("starting distributed counter system");
+    let (aggregator_ref,_counter_handle)=Actor::spawn(Some("aggregator".to_string()),
+    AggregatorActor,
+    (),
+    ).await?;
 
+    //spawn multiple counter actors
+    let  mut counter_refs=Vec::new();
+    for i in 0..4{
+        let counter_id=format!("counter-{}",i);
+        let (counter_ref,_counter_handle)=Actor::spawn(
+            Some(counter_id.clone()),
+            CounterActor{id:counter_id.clone()},
+            counter_id
+        ).await?;
+        aggregator_ref.cast(AggregatorMessage::RegisterCounter(counter_ref.clone()))?;
+        counter_refs.push(counter_ref);
+
+    }
+    // start periodic task collection
+    aggregator_ref.cast(AggregatorMessage::CollectStats)?;
+
+    // simulate concurrent operations from multiple clients
+    let mut handles=Vec::new();
+    for (idx,counter_ref) in counter_refs.iter().enumerate() {
+        let counter=counter_ref.clone();
+        let handle=tokio::spawn(async move {
+            for i in 0..50{
+                if i%3==0{
+                    let _ = counter.cast(CounterMessage::Decrement {
+                        amount: (idx+1)as i64
+                    });
+                }
+                else{
+                    let _ = counter.cast(CounterMessage::Increment {
+                        amount: (idx+1)as i64
+                    });
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        });
+        handles.push(handle);
+    }
+    for handle in handles{
+        handle.await?;
+    }
+
+    //give time for final stats collection
+    sleep(Duration::from_secs(3)).await;
+
+    //Get final aggregated stats
+    let final_stats=match aggregator_ref.call(
+        |reply|AggregatorMessage::GetTotalStats(reply),
+        Some(Duration::from_secs(1))
+    ).await?{
+        CallResult::Success(stats)=>stats,
+        CallResult::Timeout=>{
+            eprintln!("[Aggregator] timed out");
+            return Err("Timed out".into());
+        }
+        CallResult::SenderError=>{
+            eprintln!("[Aggregator] sender error getting final stats");
+            return Err("Sender Error".into());
+        }
+    };
+
+    println!("[Aggregator] final stats: {:?}", final_stats);
+
+    //shutdown
+    for counter in counter_refs{
+        counter.stop(None);
+    }
+
+    aggregator_ref.stop(None);
+    sleep(Duration::from_millis(100)).await;
+
+    Ok(())
 }
