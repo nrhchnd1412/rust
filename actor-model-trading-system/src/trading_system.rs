@@ -28,7 +28,7 @@ pub struct SupervisorState{
     executor: Option<ActorRef<ExecutorMessage>>,
     market_data_restarts: u32,
     risk_manager_restarts: u32,
-    
+
 }
 
 pub struct TradingSystemSupervisor {
@@ -50,8 +50,8 @@ impl Actor for TradingSystemSupervisor{
             OrderExecutor,
             ()
         ).await?;
-        
-        
+
+
         //spawn risk m anager with supervision
         let (risk_ref,_)=Actor::spawn_linked(
             Some(format!("{}-risk", symbol)),
@@ -59,14 +59,14 @@ impl Actor for TradingSystemSupervisor{
             (1000,Some(executor_ref.clone())),
             myself.clone().into(),
         ).await?;
-        
+
         //spawn order book
         let (book_ref,_)=Actor::spawn(
             Some(format!("{}-book", symbol)),
             OrderBook{symbol:symbol.clone()},
             (symbol.clone(),Some(risk_ref.clone())),
         ).await?;
-        
+
         //spawn marketdata with supervision (allow first failure)
         let (market_ref,_)=Actor::spawn_linked(
             Some(format!("{}-market", symbol)),
@@ -74,7 +74,7 @@ impl Actor for TradingSystemSupervisor{
             (symbol.clone(),false),
             myself.clone().into(),
         ).await?;
-        
+
         Ok(SupervisorState{
             symbol,
             market_data:Some(market_ref),
@@ -84,6 +84,43 @@ impl Actor for TradingSystemSupervisor{
             market_data_restarts:0,
             risk_manager_restarts:0,
         })
-        
+
+    }
+    async fn handle(&self, myself: ActorRef<Self::Msg>, message: Self::Msg, state: &mut Self::State) -> Result<(), ActorProcessingErr> {
+        match message{
+            TradingSystemMessage::Start => {
+                if let Some(ref market_data) = state.market_data{
+                    println!("[Supervisor] Starting market data feed...]");
+                    market_data.cast(MarketDataMessage::Start)?;
+                }
+            }
+            TradingSystemMessage::SubmitOrder(order) => {
+                if let Some(ref order_book) = state.order_book{
+                    order_book.cast(OrderBookMessage::PlaceOrder(order))?;
+                }
+            }
+            TradingSystemMessage::GetSystemStats(reply) => {
+                let executed = if let Some(ref executor)=state.executor{
+                    match executor.call(
+                        |r|ExecutorMessage::GetExecutedCount(r),
+                        Some(Duration::from_secs(1))
+                    ).await{
+                        Ok(ractor::rpc::CallResult::Success(count))=>count,
+                        _=>0,
+                    }
+                }else{
+                    0
+                };
+                reply.send(SystemStats{
+                    market_data_restarts:state.market_data_restarts,
+                    risk_manager_restarts:state.risk_manager_restarts,
+                    order_executed:executed,
+                })?;
+            }
+            TradingSystemMessage::Shutdown => {
+                println!("[Supervisor] Shutting down trading system...");
+            }
+        }
+        Ok(())
     }
 }
