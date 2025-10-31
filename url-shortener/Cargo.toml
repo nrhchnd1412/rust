@@ -1,0 +1,30 @@
+[package]
+name = "url-shortener"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum = { version = "0.8.6" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+sqlx = { version = "0.7", features = ["postgres", "runtime-tokio-native-tls", "macros","uuid","chrono"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1", features = ["v4"] }
+rand = "0.8"
+base64 = "0.22.1"
+anyhow = "1.0.100"
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.20", features = ["fmt", "env-filter"] }
+deadpool-redis = "0.22.0"
+redis = { version = "0.23", features = ["tokio-comp"] }
+tower = "0.5.2"
+tower-http = { version = "0.6.6", features = ["trace", "cors", "limit"] }
+url = "2.5.7"
+chrono = "0.4.42"
+
+[features]
+default = []
+
+[[bin]]
+name = "shorty"
+path = "src/main.rs"
