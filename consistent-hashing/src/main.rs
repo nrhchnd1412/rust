@@ -100,6 +100,22 @@ impl HashRing{
         }
     }
 
+    pub fn remove_node(&self,node_id:&NodeId)->Result<Node,RingError>{
+        loop{
+            let old = self.inner.load_full();
+            if !old.nodes.contains_key(node_id) {
+                return Err(RingError::NotFound);
+            }
+            let mut new_state = (*old).clone();
+            let removed = new_state.nodes.remove(node_id).expect("node not found");
+            new_state.ring.retain(|(_,nid)|nid!=&removed.id);
+            new_state.ring.sort_by(|a,b|a.0.cmp(&b.0));
+            let new_arc = Arc::new(new_state);
+            self.inner.compare_and_swap(&old,new_arc);
+            return Ok(removed);
+        }
+    }
+
     pub fn get_node_for_key(&self, key: &[u8]) -> Option<Node> {
         let state = self.inner.load();
         let ring = &state.ring;
